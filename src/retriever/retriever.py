@@ -18,77 +18,88 @@ DICT_PST = {
 }
 
 
-def get_passage(embedding, tb_name, threshold=25, num_doc=10):
+def get_passage(embedding, tbname, threshold=25, num_doc=10):
     try:
         conn = psycopg2.connect(**DICT_PST)
         conn.autocommit = True
         cursor = conn.cursor()
-        
+
         sql = f'''
-            SET LOCAL ivfflat.probes = 3
+            SET LOCAL ivfflat.probes = 3;
             SELECT
                 tb.id,
                 tb.content,
                 (tb.embedd <#> %s) * -1 AS score
-            FROM {tb_name} as tb
+            FROM {tbname} as tb
             WHERE (tb.embedd <#> %s) * -1 > {threshold}
             ORDER BY score DESC
             LIMIT {num_doc}
         '''
-        
+
         cursor.execute(sql, (embedding, embedding))
         results = cursor.fetchall()
-        
+
         if conn:
             cursor.close()
             conn.close()
-        
+
         return results
-    
+
     except(Exception, Error) as error:
         print(f'Error: {error}')
-        
-def process_fn(example, model, tokenizer, device):
-    
-    tokenized = tokenizer(example, padding=True, truncation=True,
+
+def tokenized_fn(examples, model, tokenizer, device):
+    tokenized = tokenizer(examples, padding=True, truncation=True,
                           max_length=512, return_tensors="pt").to(device)
     with torch.no_grad():
         model_outputs = model(**tokenized)["pooler_output"]
-    embds = str(list(model_outputs.cpu().detach().numpy().reshape(-1)))
-    results = get_passage(embds, 'wiki_tb_17m_128')
-    
+
+    embds = [str(list(model_outputs[i, :].cpu().detach().numpy().reshape(-1)))
+                    for i in range(model_outputs.size(0))]
+
+    return {'embds':embds}
+
+def process_fn(example, tbname):
+    results = get_passage(example, tbname)
     return {
-        'passages' : [{item[0] : item[1]} for item in results] ,
-        'retrieve_score' : [{item[0] : round(item[2], 3)} for item in results],
-    }
+        'passages': [str(item[0]) + ' ## ' + item[1].strip() for item in results],
+        'retrieve_score':[str(item[0]) + ' ## ' + str(round(item[2],1)) for item in results]
+        }
 
 def main(args):
     # setup model & tokenizer
+    device = torch.device("cuda:0")
     tokenizer = DPRQuestionEncoderTokenizer.from_pretrained(args.model_name_or_path)
-    model = DPRQuestionEncoder.from_pretrained(args.model_name_or_path)
-    device = device = torch.device("cuda")
-    
+    model = DPRQuestionEncoder.from_pretrained(args.model_name_or_path).to(device)
+
     # build datasets
-    extention = args.data_name_or.path.split('.')[-1]
+    extention = args.data_name_or_path.split('.')[-1]
     datasets = load_dataset(extention, data_files=args.data_name_or_path, split='train')
-    print("Datasets info: \n", datasets)
-    
+
     # update postgres connector
     DICT_PST.update({
-        'dbname': args.postgres_db,
+        'dbname': args.postgres_dbname,
         'host': args.postgres_host,
         'port': args.postgres_port,
         'user': args.postgres_user,
         'password': args.postgres_pw
     })
-    
+
     datasets = datasets.map(
-        lambda example:process_fn(example, model, tokenizer, device),
-        desc='Query documents from database',
-        num_proc=args.num_proc if args.num_proc <  os.cpu_count() else os.cpu_count(),
+        lambda example:tokenized_fn(example['en_inp'], model, tokenizer, device),
+        batched=True, batch_size=64,
+        desc='Get all embedding sample',
     )
-    
-    data_path = os.path.join('data/enhance_passage/en', args.data_name_or.path.split('/')[-1])
+
+    datasets = datasets.map(
+        lambda example:process_fn(example['embds'],args.postgres_tbname),
+        desc='Query documents from database',
+        remove_columns='embds',
+        num_proc=1,
+    )
+
+    data_path = os.path.join('data/enhance_passage/en', args.data_name_or_path.split('/')[-1])
+    print(f'Save file at: {data_path}')
     datasets.to_json(data_path)
 
 
@@ -108,9 +119,11 @@ if __name__ == '__main__':
                         default='wiki_tb_17m_128', help="Table in postgreSQL")
     parser.add_argument('--model_name_or_path', type=str,
                     default='vblagoje/dpr-question_encoder-single-lfqa-wiki', help="Query encoder model")
-    parser.add_argument('--data_dir', type=str,
+    parser.add_argument('--data_name_or_path', type=str,
                         default='/data.json', help="Data folders")
+    parser.add_argument('--num_proc', type=int,
+                        default=4, help="Number of process worker")
     # prepare args
     args = parser.parse_args()
-    
+
     main(args)
