@@ -1,3 +1,4 @@
 psycopg2
-transformers==4.28
+transformers
 datasets
+symsearch
