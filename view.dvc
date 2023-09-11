@@ -1,0 +1,12 @@
+md5: 646d43ae1b4e768db51a1ed4c843b730
+frozen: true
+deps:
+- checksum: '59291586672275475190091306279054269672'
+  size: 80305
+  hash: md5
+  path: https://drive.google.com/file/d/1PyUzh5e8cZKZLK1APsv8dNBlOPoDlC_i/view?usp=drive_link
+outs:
+- md5: bd2657064ba697c8ad1fffc09e8e4400
+  size: 80304
+  hash: md5
+  path: view
