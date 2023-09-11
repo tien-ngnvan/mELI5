@@ -10,10 +10,6 @@ from features import (
     CleanText,
     TranslateELI5
 )
-# from features.retrieve import RetrieveELI5
-# from features.rerank import RerankELI5, BatchRerankingInference
-# from features.cleantext import CleanText
-# from features.translate import TranslateELI5
 
 from datasets import load_dataset
 from transformers import (
@@ -102,14 +98,14 @@ def main(args):
             
     elif os.path.exists(args.data_name_or_path):
         for path_name in glob.glob(os.path.join(args.data_name_or_path, '*')):
-            name_file = path_name.split("\\")[-1]
-            key = path_name.split('\\')[-2]
+            name_file = path_name.split("/")[-1]
+            key = path_name.split('/')[-2]
 
             print(f'\n\n================== Processing {name_file} file =========================')
             
             extention = name_file.split('.')[-1]
             try:
-                datasets = load_dataset(extention, data_files=path_name, split='train').select(range(4))
+                datasets = load_dataset(extention, data_files=path_name, split='train')
             except:
                 logger.infor(f'Error loading file {path_name}')
                 
